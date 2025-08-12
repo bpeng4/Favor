@@ -1,0 +1,48 @@
+---
+title: "NewMachine_Sequencing_Pretreat"
+output: html_document
+date: "2025-07-15"
+---
+
+## Details
+
+First, this file try to solve the fastq files seperate saving problem:
+  From the new sequencing machine, the fastq files are saved into each individual
+  folder.
+
+Second, this file try to normalize and clean the file names:
+  Many random symbols are added to the original sample names.
+
+
+## Gathering all the individual .fastq.gz files into a parental file
+
+
+```{bash, echo=FALSE}
+find "Source Pathway where all .fastq.gz locates" -type f -name "*.fastq.gz" -exec cp {} "Target pathway to gather all files into" \;
+
+```
+
+## Remove the unnecessary symbols from file names
+
+```{r}
+# Set the directory containing the files
+directory <- "/Volumes/Extreme SSD/Favor_Pericarp/Favor_16S"
+
+# List all files in the directory
+files <- list.files(directory)
+
+# Define the pattern to match "_S***_" in file names
+pattern <- "_S.*?_"
+
+# Loop through each file
+for (file in files) {
+  # Check if the file name matches the pattern
+  if (grepl(pattern, file)) {
+    # Extract the part between "S" and "_"
+    replacement <- gsub(pattern, "_", file)
+    # Rename the file
+    file.rename(file.path(directory, file), file.path(directory, replacement))
+  }
+}
+```
+

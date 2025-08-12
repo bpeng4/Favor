@@ -1,0 +1,21 @@
+"","Bacteria_Bacillota_Clostridia_Lachnospirales_Lachnospiraceae_Mediterraneibacter","Bacteria_Bacillota_Clostridia_Lachnospirales_Lachnospiraceae_Butyribacter","Bacteria_Bacillota_Clostridia_Lachnospirales_Lachnospiraceae_Anaerobutyricum","Bacteria_Bacillota_Clostridia_Oscillospirales_Ruminococcaceae_Faecalibacterium","Bacteria_Bacillota_Clostridia_Oscillospirales_Butyricicoccaceae_Agathobaculum","Bacteria_Bacillota_Clostridia_Oscillospirales_Ruminococcaceae_Ruminococcus","Bacteria_Bacillota_Clostridia_Oscillospirales_Ruminococcaceae_Acutalibacter","Bacteria_Bacillota_Clostridia_Oscillospirales_Ruminococcaceae_DTU089","Bacteria_Bacillota_Clostridia_Oscillospirales_Ruminococcaceae_Negativibacillus","Bacteria_Bacillota_Clostridia_Oscillospirales_Ruminococcaceae_Anaerotruncus","Bacteria_Bacillota_Clostridia_Oscillospirales_Oscillospiraceae_UCG-002","Bacteria_Bacillota_Bacilli_Erysipelotrichales_Erysipelotrichaceae_Holdemanella","Bacteria_Bacillota_Clostridia_Peptostreptococcales-Tissierellales_Anaerovoracaceae_Family XIII UCG-001","Bacteria_Bacteroidota_Bacteroidia_Bacteroidales_Rikenellaceae_Alistipes","Bacteria_Bacillota_Negativicutes_Veillonellales-Selenomonadales_Veillonellaceae_Negativicoccus","Bacteria_Bacillota_Negativicutes_Veillonellales-Selenomonadales_Veillonellaceae_Veillonella","Bacteria_Actinomycetota_Coriobacteriia_Coriobacteriales_Coriobacteriales Incertae Sedis_Raoultibacter","Bacteria_Thermodesulfobacteriota_Desulfovibrionia_Desulfovibrionales_Desulfovibrionaceae_Bilophila","Bacteria_Bacillota_Clostridia_Lachnospirales_Lachnospiraceae_Lachnospira","Bacteria_Bacillota_Clostridia_Lachnospirales_Lachnospiraceae_Frisingicoccus","Bacteria_Bacillota_Negativicutes_Acidaminococcales_Acidaminococcaceae_Phascolarctobacterium","Bacteria_Verrucomicrobiota_Verrucomicrobiia_Verrucomicrobiales_Akkermansiaceae_Akkermansia","Bacteria_Bacteroidota_Bacteroidia_Bacteroidales_Prevotellaceae_Paraprevotella","Total"
+"S4-764-1",24,0,0,43,26,38,2,1,0,1,79,14,0,375,4,0,0,7,4,2,3913,1145,18,5696
+"S4-764-2",26,0,0,39,14,24,1,1,0,2,38,6,0,407,2,3,0,9,4,0,4577,1495,32,6680
+"S4-A554-1",30,2,0,40,23,25,4,0,0,2,110,9,0,528,0,3,4,8,2,0,4727,1345,39,6901
+"S4-A554-2",29,0,0,39,18,41,2,0,0,2,75,12,0,490,0,3,2,7,4,0,4570,1276,41,6611
+"S4-B57-1",35,3,3,51,16,41,7,0,0,1,103,22,0,405,0,5,0,16,3,6,4196,1564,25,6502
+"S4-B57-2",27,0,2,56,12,27,5,0,0,1,72,16,0,274,0,8,0,11,4,4,3773,1540,17,5849
+"S4-FBB0-1",138,6,9,608,39,74,31,3,2,7,353,62,5,1155,0,10,0,51,25,9,1428,3075,201,7291
+"S4-FBB0-2",123,5,11,551,50,94,25,2,4,8,439,39,3,957,0,19,0,52,21,6,1357,4158,141,8065
+"S4-HP301-1",32,0,0,53,26,27,2,1,0,2,81,6,0,510,0,2,0,12,8,2,4882,1509,33,7188
+"S4-HP301-2",17,1,1,31,30,18,4,0,0,0,50,9,0,518,0,1,0,14,2,0,4732,1521,77,7026
+"S4-LH60-1",28,0,0,31,16,35,4,0,0,0,97,12,0,572,0,0,0,7,4,2,4942,1459,51,7260
+"S4-LH60-2",33,1,0,35,16,25,2,0,0,0,38,8,0,415,0,1,0,6,0,1,4550,1143,54,6328
+"S4-NC262-1",33,0,2,22,12,26,1,0,0,1,100,12,0,415,1,3,0,8,1,0,5110,1237,23,7007
+"S4-NC262-2",16,0,0,22,9,24,4,0,1,1,57,12,0,452,2,2,0,9,2,1,4920,1308,42,6884
+"S4-PHG35-1",31,0,3,38,16,23,4,0,1,2,59,13,1,482,0,1,0,8,2,0,4510,1082,30,6306
+"S4-PHG35-2",19,0,1,25,19,23,3,0,0,1,47,6,0,463,0,3,0,9,1,1,4751,1387,45,6804
+"S4-PHG39-1",27,0,2,44,24,21,5,0,0,1,68,19,0,443,0,4,0,19,3,2,4589,1283,40,6594
+"S4-PHG39-2",13,0,1,28,25,30,4,0,0,0,69,7,0,457,1,1,0,1,4,2,4628,1289,54,6614
+"S4-PHG47-1",28,0,1,57,24,37,4,0,0,0,91,8,0,447,0,2,0,12,6,1,4558,1138,38,6452
+"S4-PHG47-2",19,0,0,26,21,24,7,1,0,0,60,5,0,371,0,1,0,7,2,0,4680,971,33,6228
