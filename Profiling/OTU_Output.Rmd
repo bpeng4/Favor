@@ -1,0 +1,89 @@
+---
+title: "OTU_Output"
+output: html_document
+date: "2025-05-15"
+---
+
+#Phyloseq file Preparation and Standerdize
+```{r setup, include=FALSE}
+rm(list = ls())
+gc()
+suppressMessages({
+  library("tidyverse")
+  library("phyloseq")
+  library("rstatix")
+  library("vegan")
+  library("picante")
+  library("ggpubr")
+  library(vegan)
+  library(dplyr)
+  library(tidyr)
+  library(ggplot2)
+  library(poppr)  # For AMOVA if genetic analysis is needed
+  library(viridis)
+  library(patchwork)
+  library(pheatmap)
+  library(RColorBrewer)
+  library(agricolae)
+  library(microbiomeSeq)
+  library(microbiomeutilities)
+  library(viridis)
+  library(RColorBrewer)
+})
+no_of_cores = 16
+setwd("/work/benson/bpeng4/Favor/Favor_16S")
+load("intermediate/Favor_Forward_ps.rda")
+ls()
+ps
+
+###Pre-arrangement on  the phyloseq file
+################
+ps.clean <- subset_taxa(ps, Kingdom == "Bacteria") %>%
+  subset_taxa(!is.na(Phylum)) %>%
+  subset_taxa(!Class %in% c("Chloroplast")) %>%
+  subset_taxa(!Family %in% c("Mitochondria"))
+ps.clean
+
+## Standardize Data by Rarefication
+##
+#Check Total Reads to find the Thresholds for Rarefication
+OTU<-otu_table(ps.clean) |>as.data.frame()
+OTU$Total<- rowSums(OTU)
+#Rarefication
+ps.rare<-rarefy_even_depth(ps.clean, sample.size = 13634,
+                           rngseed = 111, replace = TRUE, trimOTUs = TRUE, verbose = TRUE)
+
+```
+
+#OTU Output
+```{r}
+#Output otu tables in species level
+OutOTUSpecies<-function(ps.run, filename = "otu_otuput"){
+  OTU<-otu_table(ps.run) |>as.data.frame()
+  Taxa<-tax_table(ps.run) |>as.data.frame()
+  Taxa$Name<- apply(Taxa[,1:7], 1, function(x) paste(x, collapse = "_"))
+  colnames(OTU)<-Taxa$Name
+  OTU$Total<- rowSums(OTU)
+  return(OTU)
+}
+
+ps.species = phyloseq::tax_glom(ps.rare, taxrank = rank_names(ps.rare)[7])
+OTUSpecies<-OutOTUSpecies(ps.species)
+write.csv(OTUSpecies, file = paste0("/work/benson/bpeng4/Favor/Plots/OTUSpecies.csv"))
+
+
+#Output otu tables in genus level
+OutOTUGenus<-function(ps.run, filename = "otu_otuput"){
+  OTU<-otu_table(ps.run) |>as.data.frame()
+  Taxa<-tax_table(ps.run) |>as.data.frame()
+  Taxa$Name<- apply(Taxa[,1:6], 1, function(x) paste(x, collapse = "_"))
+  colnames(OTU)<-Taxa$Name
+  OTU$Total<- rowSums(OTU)
+  return(OTU)
+}
+ps.genus = phyloseq::tax_glom(ps.rare, taxrank = rank_names(ps.rare)[6])
+OTUGenus<-OutOTUGenus(ps.genus)
+write.csv(OTUGenus, file = paste0("/work/benson/bpeng4/Favor/Plots/OTUGenus.csv"))
+```
+
+

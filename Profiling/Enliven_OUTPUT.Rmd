@@ -1,0 +1,126 @@
+---
+title: "OUTPUT_Eeligens"
+output: html_document
+date: "2025-09-25"
+---
+
+# Clean and Rarefy the Phyloseq file
+```{r}
+#Load Package
+rm(list = ls())
+gc()
+suppressMessages({
+  library("tidyverse")
+  library("phyloseq")
+  library("rstatix")
+  library("vegan")
+  library("picante")
+  library("ggpubr")
+  library(vegan)
+  library(dplyr)
+  library(tidyr)
+  library(ggplot2)  
+  library(tibble)
+  library(poppr)  # For AMOVA if genetic analysis is needed
+  library(viridis)
+  library(patchwork)
+  library(pheatmap)
+  library(RColorBrewer)
+  library(agricolae)
+  library(microbiomeSeq)
+  library(microbiomeutilities)
+  library(viridis)
+})
+no_of_cores = 16
+setwd("/work/benson/bpeng4/Favor/Favor_16S")
+load("intermediate/Favor_Forward_ps.rda")
+ls()
+ps
+
+###Pre-arrangement on  the phyloseq file
+################
+ps.clean <- subset_taxa(ps, Kingdom == "Bacteria") %>%
+  subset_taxa(!is.na(Phylum)) %>%
+  subset_taxa(!Class %in% c("Chloroplast")) %>%
+  subset_taxa(!Family %in% c("Mitochondria"))
+ps.clean
+
+## Standardize Data by Rarefication
+##
+#Check Total Reads to find the Thresholds for Rarefication
+OTU<-otu_table(ps.clean) |>as.data.frame()
+OTU$Total<- rowSums(OTU)
+#Rarefication
+ps.rare<-rarefy_even_depth(ps.clean, sample.size = 13634,
+                           rngseed = 111, replace = TRUE, trimOTUs = TRUE, verbose = TRUE)
+
+#glommate to Genus Level
+ps.genus = phyloseq::tax_glom(ps.rare, taxrank = rank_names(ps.rare)[6])
+```
+
+
+# Write Permanova Calculation function
+```{r}
+ps.filter <- function(ps.genus) {
+  # Extract OTU/ASV table and metadata
+  otu_table_df <- as.data.frame(otu_table(ps.genus))
+  metadata <- data.frame(sample_data(ps.genus))
+  taxa_table <- as.data.frame(tax_table(ps.genus))
+  
+  # Ensure 'Sample' is a factor
+  metadata$Sample <- as.factor(metadata$Sample)
+  
+  # PERMANOVA
+  adonis_results <- adonis2(otu_table_df ~ Sample, data = metadata, permutations = 999, method = "bray")
+  p_value <- adonis_results$`Pr(>F)`[1]
+  
+  # Individual ANOVA per taxon
+  p_values <- apply(otu_table_df, 2, function(x) {
+    df <- data.frame(x = x, Sample = metadata$Sample)
+    fit <- aov(x ~ Sample, data = df)
+    summary(fit)[[1]][["Pr(>F)"]][1]
+  })
+  
+  # Adjust p-values using FDR
+  p_values_adj <- p.adjust(p_values, method = "fdr")
+  
+  # Get significant taxa names
+  signif_taxa <- names(p_values_adj[p_values_adj < 0.05])
+  
+  # Check if any significant taxa remain
+  if (length(signif_taxa) == 0) {
+    message("No significant taxa found (adjusted p < 0.05). Returning NULL.")
+    return(NULL)
+  }
+  
+  # Retain only taxa that actually exist in the phyloseq object
+  existing_taxa <- taxa_names(ps.genus)
+  signif_taxa_filtered <- signif_taxa[signif_taxa %in% existing_taxa]
+  
+  # If the intersection is empty, return NULL
+  if (length(signif_taxa_filtered) == 0) {
+    message("Significant taxa do not overlap with current phyloseq object. Returning NULL.")
+    return(NULL)
+  }
+  
+  # Prune phyloseq object
+  ps.genus.filtered <- prune_taxa(signif_taxa_filtered, ps.genus)
+  
+  # Final check: ensure non-zero dimensions
+  if (ntaxa(ps.genus.filtered) == 0 || nsamples(ps.genus.filtered) == 0) {
+    message("Filtered phyloseq object has 0 taxa or samples. Returning NULL.")
+    return(NULL)
+  }
+  
+  return(ps.genus.filtered)
+}
+```
+
+
+input_ps <- ps.filter(ps.genus)
+
+input_ps_Eeligens <- subset_taxa(input_ps, Genus == "[Eubacterium] eligens group")
+
+input_ps_Faecalibacterium <- subset_taxa(ps.genus, Genus == "Faecalibacterium")
+
+write.csv(input_ps_Faecalibacterium@otu_table, file = "/work/benson/bpeng4/Favor/092525_Faecalibacterium.csv")

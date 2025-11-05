@@ -1,0 +1,507 @@
+---
+title: "Heatmap"
+output: html_document
+date: "2025-07-28"
+---
+
+# Clean and Rarefy the Phyloseq file
+```{r}
+#Load Package
+rm(list = ls())
+gc()
+suppressMessages({
+  library("tidyverse")
+  library("phyloseq")
+  library("rstatix")
+  library("vegan")
+  library("picante")
+  library("ggpubr")
+  library(vegan)
+  library(dplyr)
+  library(tidyr)
+  library(ggplot2)  
+  library(tibble)
+  library(poppr)  # For AMOVA if genetic analysis is needed
+  library(viridis)
+  library(patchwork)
+  library(pheatmap)
+  library(RColorBrewer)
+  library(agricolae)
+  library(microbiomeSeq)
+  library(microbiomeutilities)
+  library(viridis)
+})
+no_of_cores = 16
+setwd("/work/benson/bpeng4/Favor/Favor_16S")
+load("intermediate/Favor_Forward_ps.rda")
+ls()
+ps
+
+###Pre-arrangement on  the phyloseq file
+################
+ps.clean <- subset_taxa(ps, Kingdom == "Bacteria") %>%
+  subset_taxa(!is.na(Phylum)) %>%
+  subset_taxa(!Class %in% c("Chloroplast")) %>%
+  subset_taxa(!Family %in% c("Mitochondria"))
+ps.clean
+
+## Standardize Data by Rarefication
+##
+#Check Total Reads to find the Thresholds for Rarefication
+OTU<-otu_table(ps.clean) |>as.data.frame()
+OTU$Total<- rowSums(OTU)
+#Rarefication
+ps.rare<-rarefy_even_depth(ps.clean, sample.size = 13634,
+                           rngseed = 111, replace = TRUE, trimOTUs = TRUE, verbose = TRUE)
+
+```
+
+
+#glommate to Genus Level
+ps.genus = phyloseq::tax_glom(ps.rare, taxrank = rank_names(ps.rare)[6])
+
+# Adjust by FBB0
+```{r}
+normalize_by_fbb0 <- function(ps.genus.S, Subject) {
+  # Step 1: Extract OTU table (samples are rows, taxa are columns)
+  otu <- as(otu_table(ps.genus.S), "matrix")
+  
+  # Step 2: Extract FBB0 replicates
+  fbb0_1 <- otu[paste0(Subject, "-FBB0-1"), ]
+  fbb0_2 <- otu[paste0(Subject, "-FBB0-2"), ]
+  
+  # Step 3: Extract sample metadata
+  sample_df <- as(sample_data(ps.genus.S), "data.frame")
+  
+  # Step 4: Normalize each sample by its matching FBB0 replicate
+  otu_norm <- otu
+  for (sample_id in rownames(otu)) {
+    rep_val <- sample_df[sample_id, "Rep"]
+    if (rep_val == 1) {
+      otu_norm[sample_id, ] <- (otu[sample_id, ] + 0.01) / (fbb0_1 + 0.01)
+    } else if (rep_val == 2) {
+      otu_norm[sample_id, ] <- (otu[sample_id, ] + 0.01) / (fbb0_2 + 0.01)
+    }
+  }
+  # Step 5: Remove taxa (columns) with any NaN, Inf, or -Inf
+  bad_taxa <- apply(otu_norm, 2, function(col) any(!is.finite(col)))
+  otu_norm_clean <- otu_norm[, !bad_taxa]
+  
+  # Step 6: Remove FBB0 samples from both OTU matrix and sample data
+  fbb0_samples <- rownames(sample_df)[grepl("FBB0", rownames(sample_df))]
+  otu_final <- otu_norm_clean[!rownames(otu_norm_clean) %in% fbb0_samples, ]
+  sample_final <- sample_df[!rownames(sample_df) %in% fbb0_samples, ]
+  
+  # Step 7: Rebuild phyloseq object with cleaned data
+  tax_final <- tax_table(ps.genus.S)[colnames(otu_final), ]
+  otu_phyloseq <- otu_table(otu_final, taxa_are_rows = FALSE)
+  sample_phyloseq <- sample_data(sample_final)
+  ps.cleaned <- phyloseq(otu_phyloseq, tax_final, sample_phyloseq)
+  
+  return(ps.cleaned)
+}
+
+```
+
+
+# Write Permanova Calculation function
+```{r}
+ps.filter <- function(ps.genus) {
+  # Extract OTU/ASV table and metadata
+  otu_table_df <- as.data.frame(otu_table(ps.genus))
+  metadata <- data.frame(sample_data(ps.genus))
+  taxa_table <- as.data.frame(tax_table(ps.genus))
+
+  # Ensure 'Sample' is a factor
+  metadata$Sample <- as.factor(metadata$Sample)
+
+  # PERMANOVA
+  adonis_results <- adonis2(otu_table_df ~ Sample, data = metadata, permutations = 999, method = "bray")
+  p_value <- adonis_results$`Pr(>F)`[1]
+
+  # Individual ANOVA per taxon
+  p_values <- apply(otu_table_df, 2, function(x) {
+    df <- data.frame(x = x, Sample = metadata$Sample)
+    fit <- aov(x ~ Sample, data = df)
+    summary(fit)[[1]][["Pr(>F)"]][1]
+  })
+
+  # Adjust p-values using FDR
+  p_values_adj <- p.adjust(p_values, method = "fdr")
+
+  # Get significant taxa names
+  signif_taxa <- names(p_values_adj[p_values_adj < 0.05])
+
+  # Check if any significant taxa remain
+  if (length(signif_taxa) == 0) {
+    message("No significant taxa found (adjusted p < 0.05). Returning NULL.")
+    return(NULL)
+  }
+
+  # Retain only taxa that actually exist in the phyloseq object
+  existing_taxa <- taxa_names(ps.genus)
+  signif_taxa_filtered <- signif_taxa[signif_taxa %in% existing_taxa]
+
+  # If the intersection is empty, return NULL
+  if (length(signif_taxa_filtered) == 0) {
+    message("Significant taxa do not overlap with current phyloseq object. Returning NULL.")
+    return(NULL)
+  }
+
+  # Prune phyloseq object
+  ps.genus.filtered <- prune_taxa(signif_taxa_filtered, ps.genus)
+
+  # Final check: ensure non-zero dimensions
+  if (ntaxa(ps.genus.filtered) == 0 || nsamples(ps.genus.filtered) == 0) {
+    message("Filtered phyloseq object has 0 taxa or samples. Returning NULL.")
+    return(NULL)
+  }
+
+  return(ps.genus.filtered)
+}
+
+
+```
+
+
+# Write heatmap plotting function
+```{r}
+heatmapsample <- function(input_ps){
+
+  # Desired sample order
+  desired_order <- c("HP301","PHG35","NC262","764","A554","LH60","PHG39","B57","PHG47"    
+                        )
+  
+  # Extract OTU table
+  otu_df <- as.data.frame(otu_table(input_ps))
+  if (taxa_are_rows(input_ps)) {
+    otu_df <- t(otu_df)
+  }
+  
+  # Use tax_table to label taxa uniquely
+  tax_df <- as.data.frame(tax_table(input_ps))
+  tax_labels <- paste0(tax_df$Genus, "_", rownames(tax_df))
+  colnames(otu_df) <- tax_labels
+  
+  # Get sample metadata (in case you need sample info)
+  meta_df <- as.data.frame(sample_data(input_ps))
+  
+  # Add sample names
+  otu_df$Sample <- meta_df$Sample
+  
+  # Aggregate by sample
+  otu_avg <- otu_df %>%
+    group_by(Sample) %>%
+    summarise(across(where(is.numeric), mean, na.rm = TRUE))
+  
+  # Convert to matrix
+  otu_avg_mat <- column_to_rownames(otu_avg, "Sample") %>% as.matrix()
+  
+  # Remove unwanted sample
+  otu_avg_mat <- otu_avg_mat[rownames(otu_avg_mat) != "FBB0", , drop = FALSE]
+  
+  # Reorder
+  otu_avg_mat <- otu_avg_mat[desired_order[desired_order %in% rownames(otu_avg_mat)], , drop = FALSE]
+  
+  # Log2 transform
+  otu_transformed <- log2(otu_avg_mat + 1)
+  
+  # Plot
+  pheatmap(
+    mat = otu_transformed,
+    cluster_rows = FALSE,
+    cluster_cols = FALSE,
+    color = colorRampPalette(rev(brewer.pal(7, "RdYlBu")))(100),
+    show_colnames = TRUE,
+    show_rownames = TRUE,
+    main = "Heatmap (log2-transformed)"
+  )
+  return(pheatmap)
+}
+```
+
+# Adjust by FBB0 for 19 Microbiomes
+```{r}
+Subjects <- c("S1", "S2", "S3", "S4", "S5", "S6", "S7", 
+              "S9", "S12", "S14", "S15", "S16",
+              "S17", "S18", "S19", "S20", "S21", "S22", "S24")
+
+# Create empty list to store results
+ps.cleaned.list <- list()
+
+# Loop through each subject and normalize
+for (Subject in Subjects) {
+  # Subset the phyloseq object for this Subject
+  ps.sub <- subset_samples(ps.genus, Microbiome == Subject)
+  
+  # Normalize by FBB0 and clean
+  ps.cleaned <- normalize_by_fbb0(ps.sub, Subject)
+  
+  # Save result into list
+  ps.cleaned.list[[Subject]] <- ps.cleaned
+}
+```
+
+# Do Permanova for Each Individual Microbiome
+```{r}
+# Initialize result list
+ps.filtered.list <- list()
+
+# Loop through subjects
+for (Subject in Subjects) {
+  ps.filtered <- ps.filter(ps.cleaned.list[[Subject]])
+  
+  # Only store if filtering was successful (not NULL)
+  if (!is.null(ps.filtered)) {
+    ps.filtered.list[[Subject]] <- ps.filtered
+  } else {
+    message(paste("Skipping", Subject, "- no significant taxa."))
+  }
+}
+
+```
+
+
+lefse_result <- run_lefse(
+  ps = ps.genus,
+  group = "Sample",            
+  norm = "CPM",
+  lda_cutoff = 2.0,
+  kw_cutoff = 0.05,
+  wilcoxon_cutoff = 0.05
+)
+
+
+# LDA score barplot: use ggplot2 + marker_table
+lda_tbl <- marker_table(lefse_result)
+
+
+# Cladogram plot
+plot_cladogram(lefse_result, color = c('#F781BF', '#CCEBC5', '#FFFF99', '#FF7F00', '#8DD3C7', '#7FC97F', '#999999',  
+  '#CAB2D6'))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ps.genus.S1 <- subset_samples(ps.genus, Microbiome == "S1")
+ps.genus.filtered.S1 <- ps.filter(ps.genus.S1)
+ps.genus.S2 <- subset_samples(ps.genus, Microbiome == "S2")
+ps.genus.filtered.S2 <- ps.filter(ps.genus.S2)
+ps.genus.S3 <- subset_samples(ps.genus, Microbiome == "S3")
+ps.genus.filtered.S3 <- ps.filter(ps.genus.S3)
+ps.genus.S4 <- subset_samples(ps.genus, Microbiome == "S4")
+ps.genus.filtered.S4 <- ps.filter(ps.genus.S4)
+ps.genus.S5 <- subset_samples(ps.genus, Microbiome == "S5")
+ps.genus.filtered.S5 <- ps.filter(ps.genus.S5)
+ps.genus.S6 <- subset_samples(ps.genus, Microbiome == "S6")
+ps.genus.filtered.S6 <- ps.filter(ps.genus.S6)
+ps.genus.S7 <- subset_samples(ps.genus, Microbiome == "S7")
+ps.genus.filtered.S7 <- ps.filter(ps.genus.S7)
+ps.genus.S9 <- subset_samples(ps.genus, Microbiome == "S9")
+ps.genus.filtered.S9 <- ps.filter(ps.genus.S9)
+ps.genus.S12 <- subset_samples(ps.genus, Microbiome == "S12")
+ps.genus.filtered.S12 <- ps.filter(ps.genus.S12)
+ps.genus.S14 <- subset_samples(ps.genus, Microbiome == "S14")
+ps.genus.filtered.S14 <- ps.filter(ps.genus.S14)
+ps.genus.S15 <- subset_samples(ps.genus, Microbiome == "S15")
+ps.genus.filtered.S15 <- ps.filter(ps.genus.S15)
+ps.genus.S16 <- subset_samples(ps.genus, Microbiome == "S16")
+ps.genus.filtered.S16 <- ps.filter(ps.genus.S16)
+ps.genus.S17 <- subset_samples(ps.genus, Microbiome == "S17")
+ps.genus.filtered.S17 <- ps.filter(ps.genus.S17)
+ps.genus.S18 <- subset_samples(ps.genus, Microbiome == "S18")
+ps.genus.filtered.S18 <- ps.filter(ps.genus.S18)
+ps.genus.S19 <- subset_samples(ps.genus, Microbiome == "S19")
+ps.genus.filtered.S19 <- ps.filter(ps.genus.S19)
+ps.genus.S20 <- subset_samples(ps.genus, Microbiome == "S20")
+ps.genus.filtered.S20 <- ps.filter(ps.genus.S20)
+ps.genus.S21 <- subset_samples(ps.genus, Microbiome == "S21")
+ps.genus.filtered.S21 <- ps.filter(ps.genus.S21)
+ps.genus.S22 <- subset_samples(ps.genus, Microbiome == "S22")
+ps.genus.filtered.S22 <- ps.filter(ps.genus.S22)
+ps.genus.S24 <- subset_samples(ps.genus, Microbiome == "S24")
+ps.genus.filtered.S24 <- ps.filter(ps.genus.S24)
+
+# Step 1: Create a named list of all taxa vectors
+taxa_list <- list(
+  S1 = taxa_names(ps.genus.filtered.S1),
+  S2 = taxa_names(ps.genus.filtered.S2),
+  S3 = taxa_names(ps.genus.filtered.S3),
+  S4 = taxa_names(ps.genus.filtered.S4),
+  S5 = taxa_names(ps.genus.filtered.S5),
+  S6 = taxa_names(ps.genus.filtered.S6),
+  S7 = taxa_names(ps.genus.filtered.S7),
+  S9 = taxa_names(ps.genus.filtered.S9),
+  S12 = taxa_names(ps.genus.filtered.S12),
+  S14 = taxa_names(ps.genus.filtered.S14),
+  S15 = taxa_names(ps.genus.filtered.S15),
+  S16 = taxa_names(ps.genus.filtered.S16),
+  S17 = taxa_names(ps.genus.filtered.S17),
+  S18 = taxa_names(ps.genus.filtered.S18),
+  S19 = taxa_names(ps.genus.filtered.S19),
+  S20 = taxa_names(ps.genus.filtered.S20),
+  S21 = taxa_names(ps.genus.filtered.S21),
+  S22 = taxa_names(ps.genus.filtered.S22),
+  S24 = taxa_names(ps.genus.filtered.S24)
+)
+
+# Step 2: Count in how many lists each taxon appears
+taxa_counts <- table(unlist(taxa_list))
+
+# Step 3: Keep taxa that appear in at least 4 or 5 or 9 microbiomes
+common_taxa_4plus <- names(taxa_counts[taxa_counts >= 4])
+common_taxa_5plus <- names(taxa_counts[taxa_counts >= 5])
+common_taxa_10plus <- names(taxa_counts[taxa_counts >= 10])
+common_taxa_14plus <- names(taxa_counts[taxa_counts >= 14])
+
+# Plot for the common taxa
+# Step 1: Put all phyloseq objects into a named list
+ps_list <- list(
+  S1 = ps.genus.filtered.S1,
+  S2 = ps.genus.filtered.S2,
+  S3 = ps.genus.filtered.S3,
+  S4 = ps.genus.filtered.S4,
+  S5 = ps.genus.filtered.S5,
+  S6 = ps.genus.filtered.S6,
+  S7 = ps.genus.filtered.S7,
+  S9 = ps.genus.filtered.S9,
+  S12 = ps.genus.filtered.S12,
+  S14 = ps.genus.filtered.S14,
+  S15 = ps.genus.filtered.S15,
+  S16 = ps.genus.filtered.S16,
+  S17 = ps.genus.filtered.S17,
+  S18 = ps.genus.filtered.S18,
+  S19 = ps.genus.filtered.S19,
+  S20 = ps.genus.filtered.S20,
+  S21 = ps.genus.filtered.S21,
+  S22 = ps.genus.filtered.S22,
+  S24 = ps.genus.filtered.S24
+)
+
+# Step 2: Apply pruning to all
+
+common_taxa_5plus <- common_taxa_5plus[common_taxa_5plus != "ASV_1"]
+common_taxa_10plus <- common_taxa_10plus[common_taxa_10plus != "ASV_1"]
+
+ps_list_filtered <- lapply(ps_list, function(ps) prune_taxa(common_taxa_10plus, ps))
+
+
+# remove NULLs (the empty ones)
+ps_list_filtered <- Filter(Negate(is.null), ps_list_filtered)
+
+# optional: check how many taxa remain in each object
+sapply(ps_list_filtered, ntaxa)
+
+
+# Heatmap for the common taxa in each microbiome
+microbiomes <- c("S1", "S2", "S3", "S4","S5", "S6", "S7", 
+                 "S9", "S12", "S14", "S15", "S16",
+                 "S17", "S18", "S19", "S20", "S21", "S22", "S24")
+            
+
+                 
+for (i in microbiomes){
+  heatmapsample(ps_list_filtered[[i]])
+}                 
+                 
+
+
+
+
+
+
+
+# Heatmap for Bifidobacterium, Bacteroides, Runimococcus, [Eubacterium] eligens, Fusicatenibacter, and Lachnospiraceae NK4A136  in S6, S9
+
+
+ps.genus.S6<-subset_samples(ps.genus, ps.genus@sam_data$Microbiome == "S6")
+ps.genus.S9<-subset_samples(ps.genus, ps.genus@sam_data$Microbiome == "S9")
+
+common_taxa <- c("ASV_95","ASV_103","ASV_61","ASV_116")
+
+ps.genus.filtered.S6 <- prune_taxa(common_taxa, ps.genus.S6)
+ps.genus.filtered.S9 <- prune_taxa(common_taxa, ps.genus.S9)
+
+heatmapsample(ps.genus.filtered.S6)
+heatmapsample(ps.genus.filtered.S9)
+
+
+# Two color heatmap
+```{r}
+heatmapsample <- function(input_ps){
+  
+  # Desired sample order
+  desired_order <- c("A554", "PHG47", "PHG39", "B57", "HP301", 
+                     "LH60", "764", "PHG35", "NC262")
+  
+  # Extract OTU table
+  otu_df <- as.data.frame(otu_table(input_ps))
+  if (taxa_are_rows(input_ps)) {
+    otu_df <- t(otu_df)
+  }
+  
+  # Use tax_table to label taxa uniquely
+  tax_df <- as.data.frame(tax_table(input_ps))
+  tax_labels <- paste0(tax_df$Genus, "_", rownames(tax_df))
+  colnames(otu_df) <- tax_labels
+  
+  # Get sample metadata (in case you need sample info)
+  meta_df <- as.data.frame(sample_data(input_ps))
+  
+  # Add sample names
+  otu_df$Sample <- meta_df$Sample
+  
+  # Aggregate by sample
+  otu_avg <- otu_df %>%
+    group_by(Sample) %>%
+    summarise(across(where(is.numeric), mean, na.rm = TRUE))
+  
+  # Convert to matrix
+  otu_avg_mat <- column_to_rownames(otu_avg, "Sample") %>% as.matrix()
+  
+  # Remove unwanted sample
+  otu_avg_mat <- otu_avg_mat[rownames(otu_avg_mat) != "FBB0", , drop = FALSE]
+  
+  # Reorder
+  otu_avg_mat <- otu_avg_mat[desired_order[desired_order %in% rownames(otu_avg_mat)], , drop = FALSE]
+  
+  # Log2 transform
+  otu_transformed <- log2(otu_avg_mat + 1)
+  
+  # Plot
+  red_white <- colorRampPalette(c("white","red"))(100)
+  
+  pheatmap(
+    mat = t(otu_transformed),
+    cluster_rows = FALSE,
+    cluster_cols = FALSE,
+    color = red_white,
+    show_colnames = TRUE,
+    show_rownames = TRUE,
+    main = "Heatmap (Red–White Gradient)"
+  )
+  return(pheatmap)
+}
+
+```
+
